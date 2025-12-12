@@ -438,5 +438,114 @@ The "teleporting" mouse issue happens because the default "Tablet" input device 
 
 4.  **Save and Restart:** Save the file and restart your VM. The mouse should now work perfectly within the Looking Glass window.
 
+### 3.7 Fixing Audio (Scream)
+(Special thanks to [this video](https://www.youtube.com/watch?v=AfUgNEOx3uk) for the guide).
+
+To get audio working, we will use **Scream**, a virtual network sound card for Microsoft Windows. It sends audio over the network to the host.
+
+#### 3.7.1 Network Configuration
+Since Scream relies on the network, we need to ensure the default virtual network is active and starts automatically.
+
+1.  In **Virtual Machine Manager**, go to **Edit** -> **Connection Details**.
+
+    ![Edit Connection Details](images/vmm_edit_connection.png)
+
+2.  Navigate to the **Virtual Networks** tab.
+3.  Select the `default` network.
+4.  Ensure the **On Boot** checkbox is checked.
+    ![Virtual Network Autostart](images/vmm_virtual_network.png)
+
+5.  **Verify VM Network Interface:**
+    *   Open your VM details (lightbulb icon).
+    *   Select the **NIC** (Network Interface Controller) device.
+    *   Ensure **Network source** is set to `Virtual network 'default' : NAT`.
+    *   **Important:** Change the **Device model** to `virtio`. This ensures the best network performance and lowest latency for audio streaming.
+
+    ![VM Network NAT](images/vm_nat.png)
+
+#### 3.7.2 Linux Host Setup
+We need to set up the Scream receiver on the Linux host. We will use a helper script to make this easier and enable auto-start.
+
+1.  **Download Source Code:**
+    *   Download the **Scream** source code from GitHub: [https://github.com/duncanthrax/scream](https://github.com/duncanthrax/scream) (Click Code -> Download ZIP).
+    *   Download the **Scream Helper** from GitHub: [https://github.com/pavolelsig/Scream_helper](https://github.com/pavolelsig/Scream_helper) (Click Code -> Download ZIP).
+
+2.  **Extract and Organize:**
+    *   Extract both ZIP files.
+    *   Copy the extracted `scream` folder *inside* the `Scream_helper` folder.
+
+3.  **Install:**
+    *   Open a terminal inside the `Scream_helper` folder.
+    *   Make the helper script executable and run it:
+        ```bash
+        chmod +x helper.sh
+        sudo ./helper.sh
+        ```
+
+4.  **Usage:**
+    *   The script sets up a service that should **auto-start** every time you boot your Linux machine.
+    *   If you need to start it manually, you can run:
+        ```bash
+        /usr/bin/scream_audio.sh
+        ```
+
+#### 3.7.3 Windows VM Setup
+Now we need to install the Scream driver inside the Windows VM.
+
+1.  **Download Scream:**
+    *   Inside the VM, go to the [Scream Releases](https://github.com/duncanthrax/scream/releases) page.
+    *   Download the main zip file (e.g., `Scream4.0.zip`).
+    *   Extract the contents.
+
+2.  **Attempt Installation:**
+    *   Run the `install.bat` file.
+    *   **Likely Error:** You will likely see a "devcon failed" error.
+
+    ![Devcon Failed](images/devcon_failed.png)
+
+3.  **Disable Driver Signature Enforcement:**
+    To fix this, we need to install the driver manually with signature enforcement disabled.
+
+    **How to access Startup Options:**
+    1.  Open the Windows Start Menu.
+    2.  Hold down the **Shift** key and click **Restart**.
+    3.  Select **Troubleshoot** > **Advanced options** > **Startup Settings**.
+    4.  Click **Restart**.
+    5.  Press **7** to **Disable driver signature enforcement**.
+
+    ![Startup Settings](images/startup_settings.png)
+
+4.  **Install Driver:**
+    *   Once Windows boots up, navigate back to the Scream folder.
+    *   Run `install.bat` again.
+    *   You will see a red warning prompt saying "Windows can't verify the publisher of this driver software".
+    *   Click **Install this driver software anyway**.
+
+    ![Sound Driver Warning](images/sound_driver.png)
+
+    ![Scream Audio Device](images/sound_driver_result.png)
+
+    **Success:** Once installed, select "Scream (WDM)" as your output device in Windows. You should now hear the VM audio on your Linux host!
+
+    ![Sound Settings Primary Device](images/sound_settings_primary.png)
+
+### Conclusion
+Congratulations! You have made it through this massive tutorial. Your Single GPU Passthrough setup should now be fully functional with video and audio.
+
+While this guide covers the core setup to get you up and running, there are many ways to further optimize and tune your VM for even better performance (CPU pinning, hugepages, etc.). For those advanced topics, I highly recommend referring to the [Arch Wiki PCI Passthrough Performance Tuning](https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF#Performance_tuning) section.
+
+## 4. Results
+
+Here is the final result running the **Unigine Heaven Benchmark** on the VM.
+
+**Settings:**
+![Unigine Settings](images/unigine_settings.png)
+
+**Score:**
+![Benchmark Results](images/benchmark_results.png)
+
+As you can see, the performance is near-native, utilizing the full power of the discrete NVIDIA GPU while running inside a virtual machine on a Linux host.
+
+
 
 
