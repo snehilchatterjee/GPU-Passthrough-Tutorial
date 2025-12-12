@@ -38,7 +38,7 @@ Specifically, this guide targets users with **Laptop / Hybrid Graphics setups (I
 
 ## 1. IOMMU Grouping & Isolation
 
-### Checking IOMMU Groups
+### 1.1 Checking IOMMU Groups
 Before proceeding, it is critical to ensure your hardware supports IOMMU and that your GPU is isolated in its own group. An IOMMU group is the smallest set of physical devices that can be passed to a virtual machine. If your GPU is grouped with other critical devices (like a USB controller or PCI bridge), you must pass *all* of them to the VM, which might not be possible.
 
 **How to check:**
@@ -56,7 +56,7 @@ Be wary of plugging your guest GPU into an unisolated CPU-based PCIe slot. Depen
 *   If your GPU is grouped with other devices you cannot pass, you may need to move the GPU to another slot (if available).
 *   Alternatively, you can look into the **ACS Override Patch**, but this comes with security and stability drawbacks. *Please refer to the Arch Wiki for details on ACS Override, as I have no experience with it and cannot provide support for it.*
 
-### Device Isolation (Binding to VFIO)
+### 1.2 Device Isolation (Binding to VFIO)
 
 Once you have identified your GPU and Audio device in the IOMMU groups, **write down their IDs**. You will need them for the next steps.
 *   Format: `VENDOR:DEVICE` (e.g., `10de:13c2`)
@@ -66,8 +66,8 @@ Once you have identified your GPU and Audio device in the IOMMU groups, **write 
 
 We need to tell the Linux kernel to *ignore* these devices during boot so that the `vfio-pci` driver can claim them instead of the standard drivers (like `nouveau` or `nvidia`).
 
-#### Method: Using the Automated Scripts
-I have provided two scripts in the `scripts/` folder to automate switching between "VM Mode" (GPU isolated for VM) and "Host Mode" (GPU available for Linux).
+#### 1.2.1 Method 1: Using the Automated Scripts (Recommended)
+I have provided two scripts in the `scripts/` folder to automate switching between "VM Mode" (GPU isolated for VM) and "Host Mode" (GPU available for Linux). This is the preferred method because manually reverting changes every time you want to use your GPU on Linux is tedious and error-prone.
 
 **First, make the scripts executable:**
 ```bash
@@ -123,6 +123,22 @@ After rebooting, your dGPU should be bound to its standard driver (e.g., `nvidia
 *   **Expected Output:** `Kernel driver in use: nvidia` (or `nouveau`)
 
 ![Nvidia Driver In Use](images/nvidia_driver_inuse.png)
+
+#### 1.2.2 Method 2: Manual Configuration
+*This method involves manually editing system configuration files.*
+
+1.  **Edit GRUB:** Open `/etc/default/grub` and add `intel_iommu=on` (or `amd_iommu=on`) and `vfio-pci.ids=YOUR_GPU_IDs (separated by commas)` to the `GRUB_CMDLINE_LINUX_DEFAULT` line.
+2.  **Update GRUB:** Run `sudo update-grub`.
+3.  **Configure Modprobe:** Create `/etc/modprobe.d/vfio.conf` and add:
+    ```
+    options vfio-pci ids=YOUR_GPU_IDs (separated by commas)
+    softdep nvidia pre: vfio-pci
+    ```
+4.  **Update Initramfs:** Run `sudo update-initramfs -u`.
+5.  **Reboot.**
+
+**Why use the scripts?**
+In order to revert the manual changes above (to use your GPU on Linux again), you would have to manually undo every edit you just made (remove params from GRUB, delete the modprobe file, update grub, update initramfs). This gets tedious very quickly. That is why I created the scripts in **Method 1**—to automate this entire process of allocating your GPU to the VM or the Host Machine.
 
 
 
