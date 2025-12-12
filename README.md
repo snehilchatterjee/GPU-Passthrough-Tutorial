@@ -36,6 +36,26 @@ Specifically, this guide targets users with **Laptop / Hybrid Graphics setups (I
         sudo apt install -y qemu-kvm qemu-utils libvirt-daemon-system libvirt-clients bridge-utils virt-manager ovmf dnsmasq ebtables
         ```
 
+## 0. System Backup (Crucial Step)
+
+Before messing with kernel parameters, drivers, and boot configurations, **you must create a system backup**. If something goes wrong (e.g., you blacklist your GPU and can't boot into a GUI), a snapshot will save you hours of troubleshooting.
+
+I highly recommend using **Timeshift**.
+
+1.  **Install Timeshift:**
+    ```bash
+    sudo apt install timeshift
+    ```
+2.  **Create a Snapshot:**
+    *   Open Timeshift.
+    *   Select **RSYNC** as the snapshot type (unless you are using BTRFS).
+    *   Select the destination drive for your snapshots.
+    *   Click **Create** to make a manual snapshot immediately.
+    *   Name it something like "Pre-GPU Passthrough".
+
+**Recovery Plan:**
+If you break your system, you can boot from a Live USB, install Timeshift on the live environment, and restore this snapshot to your main drive.
+
 ## 1. IOMMU Grouping & Isolation
 
 ### 1.1 Checking IOMMU Groups
@@ -139,6 +159,36 @@ After rebooting, your dGPU should be bound to its standard driver (e.g., `nvidia
 
 **Why use the scripts?**
 In order to revert the manual changes above (to use your GPU on Linux again), you would have to manually undo every edit you just made (remove params from GRUB, delete the modprobe file, update grub, update initramfs). This gets tedious very quickly. That is why I created the scripts in **Method 1**—to automate this entire process of allocating your GPU to the VM or the Host Machine.
+
+## 2. Setting up the VM
+
+### 2.1 Configuring Libvirt
+Ok, so after doing:
+```bash
+sudo apt update
+sudo apt install -y qemu-kvm qemu-utils libvirt-daemon-system libvirt-clients bridge-utils virt-manager ovmf dnsmasq ebtables
+```
+
+You may also need to activate the default libvirt network:
+
+```bash
+# virsh net-autostart default
+# virsh net-start default
+```
+
+### 2.2 Creating the Virtual Machine
+Once libvirt is installed and the network is active, you can proceed with creating the virtual machine.
+
+1.  Open **Virtual Machine Manager** (`virt-manager`).
+2.  Click the **Create a new virtual machine** icon.
+3.  Choose **Local install media (ISO image or CDROM)**.
+4.  Select your ISO file (e.g., Windows 10/11 installer).
+5.  Configure memory and CPU settings.
+6.  Create a disk image for the VM storage.
+7.  **Important:** Before clicking "Finish", check the box **Customize configuration before install**.
+8.  In the Overview section, change the **Firmware** to `UEFI x86_64: /usr/share/OVMF/OVMF_CODE_4M.fd` (or similar OVMF option).
+    ![UEFI Configuration](images/uefi.png)
+9.  Click **Apply** and then **Begin Installation**.
 
 
 
