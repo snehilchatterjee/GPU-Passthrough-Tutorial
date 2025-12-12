@@ -196,6 +196,8 @@ Once libvirt is installed and the network is active, you can proceed with creati
     ![CPU Passthrough](images/cpu_passthrough.png)
 10. Click **Apply** and then **Begin Installation**.
 
+> **Performance Note:** After Windows installs, the VM might feel very laggy. This is **normal and expected**. You are currently using an emulated display. Even after installing GPU drivers, the lag will persist until we configure **Looking Glass** to display the actual GPU output.
+
 ### 2.3 Installing VirtIO Drivers
 To get the best performance for disk and network, we need the VirtIO drivers. Windows does not include these by default.
 
@@ -213,7 +215,25 @@ To get the best performance for disk and network, we need the VirtIO drivers. Wi
 3.  **Install Drivers:**
     *   Open the CD drive inside the VM and run `virtio-win-guest-tools.exe` to install all necessary drivers (Network, Balloon, Display, etc.).
 
-### 2.4 Installing GPU Drivers
+### 2.4 Adding PCIe Devices
+Now we need to pass the isolated GPU to the VM.
+
+1.  Open the VM details view (lightbulb icon).
+2.  Click **Add Hardware**.
+3.  Select **PCI Host Device**.
+4.  Find and select your GPU (VGA compatible controller) from the list.
+5.  Repeat steps 2-4 to add the rest of the devices associated with your GPU.
+
+    ![Adding PCI Device](images/add_pci_device.png)
+6.  Click **Finish**.
+
+    **Result:** You should see your GPU devices listed in the hardware list.
+    ![PCI Devices Added](images/pci_devices_added.png)
+
+    When you boot into Windows, check **Device Manager**. You should see your GPU listed (likely as a "Microsoft Basic Display Adapter" or with a generic name before drivers are installed).
+    ![Device Manager Check](images/device_manager_pci_added.png)
+
+### 2.5 Installing GPU Drivers
 Now that the VM is set up with basic drivers, you need to install the specific drivers for your passed-through GPU.
 
 1.  **Download Drivers:**
@@ -223,6 +243,145 @@ Now that the VM is set up with basic drivers, you need to install the specific d
     *   Download the installer for your specific GPU model and Windows version.
     *   Run the installer inside the VM and follow the prompts.
     *   **Note:** The screen might flicker or go black during installation as the driver initializes the GPU.
+
+### 2.6 Troubleshooting: Error 43 on Mobile/Laptop GPUs
+If you check Device Manager, expand **Display adapters**, and double-click your NVIDIA GPU, you might see the status message: **"Windows has stopped this device because it has reported problems. (Code 43)"**.
+
+If you are using a laptop (Optimus/Max-Q), this is likely because the driver expects a battery to be present.
+
+![Error 43](images/error_43.png)
+*(Image Credit: drivereasy.com)*
+
+**The Fix:** We need to simulate a battery by injecting a custom ACPI table.
+
+1.  **Create the ACPI Table:**
+    Run this command in your Linux terminal to create the `SSDT1.dat` file:
+    ```bash
+    echo 'U1NEVKEAAAB9EJPQ0hTAEJYUENTU0RUAQAAElOVEwYEBgoA8AFVwuX1NCX1BDSTAGABBMBi5fU0JFUENJMFuCTwVQVQwCF9ISUQMQdAMCghfVULEABQJX1NUQQCkCh8UK19CSUYJDQELcBcLcBcBcB9A5C1gCCYwBCjwKPA0ADQANTElPTgANABQSX0JTVACkEgoAAALcBcL0Dk=' | base64 -d > SSDT1.dat
+    ```
+    Move this file to a safe location (e.g., `/var/lib/libvirt/images/SSDT1.dat`) and ensure it is readable by the `libvirt-qemu` user.
+
+2.  **Edit VM XML:**
+    *   In `virt-manager`, enable XML editing (Edit -> Preferences -> General -> Enable XML editing).
+    *   Open your VM details and go to the **XML** tab.
+    *   **Step A:** Update the top `<domain>` tag to include the QEMU namespace:
+        ```xml
+        <domain xmlns:qemu="http://libvirt.org/schemas/domain/qemu/1.0" type="kvm">
+        ```
+    *   **Step B:** Scroll to the very bottom, just before `</domain>`, and add the following block (update the path to where you saved the file):
+        ```xml
+        <qemu:commandline>
+          <qemu:arg value="-acpitable"/>
+          <qemu:arg value="file=/var/lib/libvirt/images/SSDT1.dat"/>
+        </qemu:commandline>
+        ```
+3.  **Apply and Reboot:** Click Apply and restart your VM. The error should be gone.
+
+*Note: I did not encounter this error while creating this specific tutorial run, which is why the screenshot above is from an external source. However, it is a very common issue for laptop users, so I am including the fix here based on my previous experiences.*
+
+*Note: If you are still facing Error 43 (regardless of whether you are on a laptop or desktop), please refer to the [Arch Wiki](https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF#Video_card_driver_virtualisation_detection).*
+
+## 3. Setting up Looking Glass
+Looking Glass allows us to stream the VM's display to the host with near-zero latency by using a shared memory buffer. This eliminates the need for a physical monitor or dummy plug.
+
+### 3.1 Adding IVSHMEM Device
+We need to create a shared memory device in the VM configuration.
+
+1.  **Edit VM Configuration:**
+    Open a terminal and run:
+    ```bash
+    virsh edit <vm-name>
+    ```
+2.  **Add XML Block:**
+    Find the `<devices>` section and add the following block inside it:
+    ```xml
+    <shmem name='looking-glass'>
+      <model type='ivshmem-plain'/>
+      <size unit='M'>32</size>
+    </shmem>
+    ```
+    *   **Note on Size:** The size `32` (MB) depends on your resolution.
+    *   **Formula:** `(Width x Height x 4 x 2) / 1024 / 1024 + 10`
+    *   **Example (1920x1080):** `(1920 * 1080 * 4 * 2) / 1024 / 1024 = 15.8 MB`. Add 10 = 25.8 MB. Round up to the nearest power of two -> **32 MB**.
+    *   If you use 4K, you will need a larger size (e.g., 64 or 128).
+
+### 3.2 Creating Shared Memory File on Host
+We need to tell the host system to create this shared memory file with the correct permissions.
+
+1.  **Create Config File:**
+    Create a file named `/etc/tmpfiles.d/10-looking-glass.conf`:
+    ```bash
+    sudo nano /etc/tmpfiles.d/10-looking-glass.conf
+    ```
+2.  **Add Content:**
+    Paste the following line, replacing `user` with your actual Linux username:
+    ```
+    f /dev/shm/looking-glass 0660 user kvm -
+    ```
+3.  **Create the File:**
+    Run the following command to apply the changes immediately:
+    ```bash
+    sudo systemd-tmpfiles --create /etc/tmpfiles.d/10-looking-glass.conf
+    ```
+
+    **Result:** You should see the shared memory file created in `/dev/shm/`.
+
+    ![Shared Memory Device](images/shared_mem_dev.png)
+
+> **Note:** If you ever change the resolution/size in the XML later, you must delete the existing file (`rm /dev/shm/looking-glass`) and recreate it, or the VM will fail to start.
+
+### 3.3 Installing Looking Glass
+We need to install the Looking Glass application on both the Windows VM (Host) and the Linux Host (Client).
+
+**Important:** You must use the **exact same version** on both the host and the guest.
+
+1.  **Download:**
+    Go to the [Looking Glass Downloads](https://looking-glass.io/downloads) page.
+    *   **For Windows VM:** Download the **Windows Host Binary** (setup `.exe`).
+    *   **For Linux Host:** Download the **Source** tarball.
+
+#### 3.3.1 Linux Setup (Host)
+Since we are on Linux, we need to compile the client from source.
+
+1.  **Extract the Source:**
+    Extract the downloaded tarball to a folder of your choice.
+
+2.  **Install Build Dependencies:**
+    Run the following command to install the necessary libraries for compiling:
+    ```bash
+    sudo apt-get install binutils-dev cmake fonts-dejavu-core libfontconfig-dev \
+    gcc g++ pkg-config libegl-dev libgl-dev libgles-dev libspice-protocol-dev \
+    nettle-dev libx11-dev libxcursor-dev libxi-dev libxinerama-dev \
+    libxpresent-dev libxss-dev libxkbcommon-dev libwayland-dev wayland-protocols \
+    libpipewire-0.3-dev libpulse-dev libsamplerate0-dev
+    ```
+
+3.  **Compile:**
+    Navigate into the extracted folder and run:
+    ```bash
+    mkdir client/build
+    cd client/build
+    cmake ../
+    make
+    ```
+
+4.  **Run Looking Glass:**
+    To start the client and see your VM:
+    ```bash
+    ./looking-glass-client
+    ```
+
+#### 3.3.2 Windows Setup (Guest)
+1.  Run the downloaded `.exe` installer inside the VM.
+2.  Follow the prompts to install.
+3.  **The Error:** You will likely encounter an error when trying to start the application on Windows (it just won't start). This is because we don't have a physical monitor attached, and Windows is defaulting to the "Microsoft Basic Render Driver" instead of using your NVIDIA GPU for the display.
+
+    ![Looking Glass Error](images/looking_glass_error.png)
+
+    *   *Troubleshooting:* You can check the Looking Glass host logs in Windows at `%ProgramData%\Looking Glass (host)\` to confirm the issue.
+
+### 3.4 Fixing Looking Glass on Host (Headless Setup)
+To fix the error above, we need to force Windows to create a virtual display on the NVIDIA GPU so Looking Glass has something to capture.
 
 
 
