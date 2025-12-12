@@ -187,8 +187,42 @@ Once libvirt is installed and the network is active, you can proceed with creati
 6.  Create a disk image for the VM storage.
 7.  **Important:** Before clicking "Finish", check the box **Customize configuration before install**.
 8.  In the Overview section, change the **Firmware** to `UEFI x86_64: /usr/share/OVMF/OVMF_CODE_4M.fd` (or similar OVMF option).
+
     ![UEFI Configuration](images/uefi.png)
-9.  Click **Apply** and then **Begin Installation**.
+9.  **CPU Configuration:** Navigate to the **CPUs** section and set the **Model** to `host-passthrough`.
+    *   *Why?* This exposes your exact CPU capabilities to the VM instead of a generic model, preventing applications from complaining about an unknown CPU.
+    *   *Note:* If `host-passthrough` is not listed, type it manually. Alternatively, use the command: `virt-xml <vm-name> --edit --cpu host-passthrough`.
+
+    ![CPU Passthrough](images/cpu_passthrough.png)
+10. Click **Apply** and then **Begin Installation**.
+
+### 2.3 Installing VirtIO Drivers
+To get the best performance for disk and network, we need the VirtIO drivers. Windows does not include these by default.
+
+1.  **Download the ISO:**
+    *   **Download Stable virtio-win ISO:** Download the latest stable `virtio-win.iso` from the [Fedora Project GitHub](https://github.com/virtio-win/virtio-win-pkg-scripts/blob/master/README.md).
+2.  **Attach to VM:**
+    *   Once Windows is fully installed and you are on the desktop, shut down the VM.
+    *   In the VM configuration window (click the "i" icon), select your existing **SATA CDROM 1** (which currently holds the Windows ISO).
+    *   Click **Browse** and select the `virtio-win.iso` you just downloaded.
+    *   Click **Apply**.
+
+        ![CDROM Config 1](images/cd_rom_1.png)
+        ![CDROM Config 2](images/cd_rom_2.png)
+    *   Start the VM.
+3.  **Install Drivers:**
+    *   Open the CD drive inside the VM and run `virtio-win-guest-tools.exe` to install all necessary drivers (Network, Balloon, Display, etc.).
+
+### 2.4 Installing GPU Drivers
+Now that the VM is set up with basic drivers, you need to install the specific drivers for your passed-through GPU.
+
+1.  **Download Drivers:**
+    *   **NVIDIA:** Go to the [NVIDIA Driver Downloads](https://www.nvidia.com/Download/index.aspx) page.
+    *   **AMD:** Go to the [AMD Drivers and Support](https://www.amd.com/en/support) page.
+2.  **Install:**
+    *   Download the installer for your specific GPU model and Windows version.
+    *   Run the installer inside the VM and follow the prompts.
+    *   **Note:** The screen might flicker or go black during installation as the driver initializes the GPU.
 
 
 
