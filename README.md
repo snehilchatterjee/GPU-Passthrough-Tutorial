@@ -404,6 +404,7 @@ To fix the error above, we need to force Windows to create a virtual display on 
 Now that the virtual display is active:
 
 1.  **Restart Looking Glass Host:** In the Windows VM, restart the "Looking Glass (host)" service, or just reboot the VM.
+    
     ![Looking Glass Working](images/looking_glass_working.png)
 2.  **Start Client:** On your Linux host, run `./looking-glass-client` again.
 3.  **Check Video:** You should now see your Windows desktop streamed with high performance!
