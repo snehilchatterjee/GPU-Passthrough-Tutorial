@@ -374,14 +374,69 @@ Since we are on Linux, we need to compile the client from source.
 #### 3.3.2 Windows Setup (Guest)
 1.  Run the downloaded `.exe` installer inside the VM.
 2.  Follow the prompts to install.
-3.  **The Error:** You will likely encounter an error when trying to start the application on Windows (it just won't start). This is because we don't have a physical monitor attached, and Windows is defaulting to the "Microsoft Basic Render Driver" instead of using your NVIDIA GPU for the display.
+3.  **Verify Installation:** Open Device Manager and check under **System devices**. You should see the **IVSHMEM Device** listed.
+    ![IVSHMEM Device](images/ivshmem_device.png)
+4.  **The Error:** You will likely encounter an error when trying to start the application on Windows (it just won't start). This is because we don't have a physical monitor attached, and Windows is defaulting to the "Microsoft Basic Render Driver" instead of using your NVIDIA GPU for the display.
 
     ![Looking Glass Error](images/looking_glass_error.png)
 
     *   *Troubleshooting:* You can check the Looking Glass host logs in Windows at `%ProgramData%\Looking Glass (host)\` to confirm the issue.
 
 ### 3.4 Fixing Looking Glass on Host (Headless Setup)
-To fix the error above, we need to force Windows to create a virtual display on the NVIDIA GPU so Looking Glass has something to capture.
+To fix the error above, we need to force Windows to create a virtual display on the NVIDIA GPU so Looking Glass has something to capture. We will use the **Virtual Display Driver (VDD)** for this.
+
+1.  **Download VDD:**
+    *   On your Windows VM, go to the [Virtual Display Driver Releases](https://github.com/VirtualDrivers/Virtual-Display-Driver/releases) page.
+    *   Download the latest **VDD.Control** zip file (e.g., `VDD.Control.25.7.23.zip`).
+2.  **Install VDD:**
+    *   Extract the zip file.
+    *   Run the **VDD Control** application (`VDD Control.exe`).
+    *   Click the **Install Driver** button.
+    *   Accept any prompts to install the driver.
+    ![VDD Driver Install](images/vdd_driver.png)
+3.  **Configure Display:**
+    *   Once installed, Windows should detect a new display.
+    *   Open **Display Settings** in Windows.
+    *   You should see a new monitor. Select it and ensure it is set to **Extend these displays** (or "Show only on 2" if you want to disable the emulated screen).
+    *   Set the resolution to match your Linux host (e.g., 1920x1080).
+
+### 3.5 Verifying Video Output
+Now that the virtual display is active:
+
+1.  **Restart Looking Glass Host:** In the Windows VM, restart the "Looking Glass (host)" service, or just reboot the VM.
+    ![Looking Glass Working](images/looking_glass_working.png)
+2.  **Start Client:** On your Linux host, run `./looking-glass-client` again.
+3.  **Check Video:** You should now see your Windows desktop streamed with high performance!
+
+**However, we are not done yet.**
+*   **Audio:** We still need to set up audio passing between the VM and the Host.
+*   **Mouse:** You might notice your mouse "teleporting" or behaving erratically when you click. We will fix this input issue in the next section.
+
+### 3.6 Fixing Mouse Input (Teleporting Issue)
+The "teleporting" mouse issue happens because the default "Tablet" input device uses absolute positioning, which conflicts with Looking Glass's input handling.
+
+1.  **Edit VM XML:**
+    Open a terminal and run:
+    ```bash
+    virsh edit <vm-name>
+    ```
+2.  **Remove Tablet Device:**
+    Find the line that looks like this:
+    ```xml
+    <input type='tablet' bus='usb'/>
+    ```
+    **Delete this line entirely.**
+    ![Tablet Device Removal](images/mouse_problem.png)
+
+3.  **Verify PS/2 Devices:**
+    Ensure you still have the standard PS/2 mouse and keyboard defined (these are usually there by default):
+    ```xml
+    <input type='mouse' bus='ps2'/>
+    <input type='keyboard' bus='ps2'/>
+    ```
+    ![PS/2 Devices Verification](images/mouse_fix.png)
+
+4.  **Save and Restart:** Save the file and restart your VM. The mouse should now work perfectly within the Looking Glass window.
 
 
 
